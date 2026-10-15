@@ -15,14 +15,22 @@ jobs:
       matrix:
         env: [dev, prod]
 
-    services:
-      api:
-        image: ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest
-        ports:
-          - 3000:3000
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Build the API image
+        run: docker build -t sdet-challenge-api docker/node
+
+      - name: Start the API
+        run: |
+          docker run -d --name sdet-challenge -p 3000:3000 sdet-challenge-api
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/dev/users >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::API did not become ready in 60s"
+          docker logs sdet-challenge
+          exit 1
 
       - uses: actions/setup-node@v4
         with:
@@ -44,3 +52,7 @@ jobs:
         with:
           name: playwright-report-${{ matrix.env }}
           path: reports/
+
+      - name: Stop the API
+        if: always()
+        run: docker rm -f sdet-challenge

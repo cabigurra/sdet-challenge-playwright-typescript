@@ -26,9 +26,21 @@ and `prod` environments **in parallel**.
 
 ## 1. Run the API under test
 
+The system under test ships with this repository under `docker/`: three
+interchangeable implementations of the same User Management API, with the same
+endpoints, the same behaviour and the same known bugs.
+
+| Implementation | Path | Stack |
+|----------------|------|-------|
+| Node.js | `docker/node` | Express |
+| Python | `docker/python` | Flask + gunicorn |
+| Java | `docker/java` | Spring Boot |
+
+Build and run one of them from the repository root:
+
 ```sh
-docker run --rm --name sdet-challenge -p 3000:3000 \
-  ghcr.io/danielsilva-loanpro/sdet-interview-challenge
+docker build -t sdet-challenge-api docker/node
+docker run --rm --name sdet-challenge -p 3000:3000 sdet-challenge-api
 ```
 
 Verify it is up:
@@ -116,7 +128,6 @@ See [`BUGS.md`](BUGS.md) for the full report.
 
 `.github/workflows/tests.yml` runs a matrix job (`dev`, `prod`) with
 `fail-fast: false` so a failing environment never blocks the other. The API is
-started as a **service container** (`ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest`,
-port `3000:3000`), Node is installed with `actions/setup-node@v4`, dependencies
+started as a **container built in the job** (`docker/node`, port `3000:3000`), Node is installed with `actions/setup-node@v4`, dependencies
 are installed with `npm ci`, the suite runs with `BASE_URL`/`ENV` set, and each
 job uploads the `reports/` directory (Playwright HTML + JUnit) as an artifact.

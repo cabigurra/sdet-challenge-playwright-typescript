@@ -6,8 +6,8 @@ tests are tagged `@bug` and marked with Playwright's `test.fail()` (which report
 them as expected failures) so the pipeline stays green while the report and this
 file document the deviation.
 
-Reproduction was done against the Docker image
-`ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest` on `http://localhost:3000`.
+Reproduction was done against the API image built from `docker/node`
+on `http://localhost:3000`.
 
 ---
 
