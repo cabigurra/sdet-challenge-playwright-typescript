@@ -5,3 +5,10 @@ reports/
 *.log
 .DS_Store
 .env
+
+# build artifacts of docker/ (when bundled with the suite)
+target/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
