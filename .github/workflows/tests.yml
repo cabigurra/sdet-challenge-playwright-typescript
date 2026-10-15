@@ -1,0 +1,46 @@
+name: API Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.env }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+
+    services:
+      api:
+        image: ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest
+        ports:
+          - 3000:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ${{ matrix.env }} E2E suite
+        env:
+          BASE_URL: http://localhost:3000
+          ENV: ${{ matrix.env }}
+        run: npx playwright test
+
+      - name: Upload ${{ matrix.env }} test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.env }}
+          path: reports/

@@ -1,0 +1,15 @@
+{
+  "name": "sdet-challenge-playwright-typescript",
+  "version": "1.0.0",
+  "description": "SDET Technical Challenge - User Management API E2E API tests (Playwright + TypeScript)",
+  "scripts": {
+    "test": "playwright test",
+    "test:dev": "ENV=dev playwright test",
+    "test:prod": "ENV=prod playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
