@@ -4,7 +4,17 @@ const PORT = process.env.PORT || 3000;
 const AUTH_TOKEN = process.env.AUTH_TOKEN || 'mysecrettoken';
 
 const app = express();
-app.use(express.json({ strict: false }));
+app.use(express.raw({ type: '*/*', limit: '1mb' }));
+
+// Serialise JSON exactly like the original app: two-space pretty printing with
+// the keys in insertion order and a trailing newline.
+app.use((req, res, next) => {
+  res.json = (body) => {
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    return res.send(JSON.stringify(body, null, 2) + '\n');
+  };
+  next();
+});
 
 const databases = { dev: new Map(), prod: new Map() };
 
@@ -12,25 +22,45 @@ function dbFor(env) {
   return databases[env];
 }
 
-function validateUserBody(body) {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return 'Request body must be a JSON object';
-  }
-  for (const field of ['name', 'email', 'age']) {
-    if (!(field in body) || body[field] === null) {
-      return `Missing required field: ${field}`;
-    }
-  }
-  if (typeof body.name !== 'string') return 'name must be a string';
-  if (typeof body.email !== 'string') return 'email must be a string';
-  if (typeof body.age !== 'number' || !Number.isInteger(body.age) || body.age < 1 || body.age > 150) {
-    return 'age must be an integer between 1 and 150';
-  }
-  return null;
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validationError(res, message) {
-  return res.status(400).json({ error: `Validation error: ${message}` });
+// Returns { invalid: true } when the request has no body, the body is not JSON,
+// or the JSON is a bare `null` (the original app reports all of them as 400).
+function parseJsonBody(req) {
+  const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  if (!raw.trim()) return { invalid: true };
+  try {
+    const value = JSON.parse(raw);
+    return value === null ? { invalid: true } : { value };
+  } catch {
+    return { invalid: true };
+  }
+}
+
+function badRequest(res, message) {
+  return res.status(400).json({ error: message });
+}
+
+function serverError(res) {
+  return res.status(500).json({ error: 'Internal server error' });
+}
+
+// Serialised in the same field order as the original application: age, email, name.
+function user(name, email, age) {
+  return { age, email, name };
+}
+
+function validate(body) {
+  if (!body.name) return 'name is required';
+  if (!body.email) return 'email is required';
+  if (!Object.prototype.hasOwnProperty.call(body, 'age')) return 'age is required';
+  const { age } = body;
+  if (typeof age !== 'number' || !Number.isInteger(age) || age < 1 || age > 150) {
+    return 'Age must be between 1 and 150';
+  }
+  return null;
 }
 
 app.get('/:env/users', (req, res) => {
@@ -43,51 +73,54 @@ app.post('/:env/users', (req, res) => {
   const db = dbFor(req.params.env);
   if (!db) return res.status(404).json({ error: 'Not found' });
 
-  const problem = validateUserBody(req.body);
-  if (problem) return validationError(res, problem);
+  const parsed = parseJsonBody(req);
+  if (parsed.invalid) return badRequest(res, 'Invalid JSON body');
+  if (!isPlainObject(parsed.value)) return serverError(res);
+  const body = parsed.value;
 
-  const { name, email, age } = req.body;
+  const problem = validate(body);
+  if (problem) return badRequest(res, problem);
 
   // BUG-02: a duplicate email should return 409 but surfaces as an unhandled error.
-  if (db.has(email)) {
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  if (db.has(body.email)) return serverError(res);
 
   // BUG-03: no email format validation, so malformed addresses are accepted with 201.
-  const user = { name, email, age };
-  db.set(email, user);
-  res.status(201).json(user);
+  const created = user(body.name, body.email, body.age);
+  db.set(body.email, created);
+  res.status(201).json(created);
 });
 
 app.get('/:env/users/:email', (req, res) => {
   const db = dbFor(req.params.env);
   if (!db) return res.status(404).json({ error: 'Not found' });
 
-  const user = db.get(req.params.email);
+  const existing = db.get(req.params.email);
   // BUG-01: an unknown email should return 404 but surfaces as a server error.
-  if (!user) return res.status(500).json({ error: 'Internal server error' });
-  res.status(200).json(user);
+  if (!existing) return serverError(res);
+  res.status(200).json(existing);
 });
 
 app.put('/:env/users/:email', (req, res) => {
   const db = dbFor(req.params.env);
   if (!db) return res.status(404).json({ error: 'Not found' });
 
-  const problem = validateUserBody(req.body);
-  if (problem) return validationError(res, problem);
+  const parsed = parseJsonBody(req);
+  if (parsed.invalid) return badRequest(res, 'Invalid JSON body');
+  if (!isPlainObject(parsed.value)) return serverError(res);
+  const body = parsed.value;
 
-  const current = db.get(req.params.email);
-  if (!current) return res.status(404).json({ error: 'User not found' });
+  const problem = validate(body);
+  if (problem) return badRequest(res, problem);
 
-  const { name, email, age } = req.body;
-  if (email !== req.params.email && db.has(email)) {
-    return res.status(409).json({ error: 'User with this email already exists' });
+  const email = req.params.email;
+  if (!db.has(email)) return res.status(404).json({ error: 'User not found' });
+  if (body.email !== email && db.has(body.email)) {
+    return res.status(409).json({ error: 'Email already exists' });
   }
 
-  if (email !== req.params.email) db.delete(req.params.email);
-  const user = { name, email, age };
-  db.set(email, user);
-  res.status(200).json(user);
+  // Quirk of the original app: PUT never persists anything — it validates the
+  // request and echoes it back with 200, leaving the stored record untouched.
+  res.status(200).json(user(body.name, body.email, body.age));
 });
 
 app.delete('/:env/users/:email', (req, res) => {
@@ -106,14 +139,9 @@ app.delete('/:env/users/:email', (req, res) => {
   res.status(204).end();
 });
 
-app.use((req, res) => res.status(404).json({ error: 'Not found' }));
-
-app.use((err, req, res, next) => {
-  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
-    return res.status(400).json({ error: 'Validation error: malformed JSON body' });
-  }
-  next(err);
-});
+// Quirk of the original app: an unmatched route is reported as a server error,
+// not as a 404.
+app.use((req, res) => serverError(res));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`User Management API (node) listening on http://0.0.0.0:${PORT}`);

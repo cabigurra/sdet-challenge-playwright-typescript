@@ -52,6 +52,26 @@ Base path is `/{env}` where `env` ∈ `dev`, `prod`. The two environments use
 
 `User` = `name` (string), `email` (string), `age` (integer 1–150), all required.
 
+### Faithful to the original, byte for byte
+
+Beyond the four documented bugs the original has a few further quirks; all of
+them are reproduced so the HTTP surface is indistinguishable:
+
+- **`PUT` never persists.** It validates, checks `404`/`409` and echoes the
+  payload with `200`, but the stored record is left untouched — an in-place
+  update is *not* saved either.
+- **An unmatched route returns `500`** (`{"error": "Internal server error"}`),
+  not `404`. An *unknown environment* (`/staging/users`) is a `404`.
+- **A bare `null` JSON body is `400 "Invalid JSON body"`**, while an array,
+  string or number body is `500`.
+- Responses are pretty-printed with two-space indentation, keys ordered
+  `age, email, name`, and a **trailing newline**.
+
+Given identical requests, all three implementations return **byte-identical**
+status lines and bodies to
+`ghcr.io/danielsilva-loanpro/sdet-interview-challenge` (verified across 92
+scenarios per implementation, `dev` and `prod`).
+
 ## The four replicated bugs
 
 These are **intentional**. They are the deviations the challenge asks you to
